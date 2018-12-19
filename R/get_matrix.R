@@ -14,7 +14,7 @@ nrnr_get_matrix <- function(matrix_id, start_year = NULL) {
   }
 
   matrix_metadata <-
-    series_metadata[series_metadata$matrix_id == "TM060001"
+    series_metadata[series_metadata$matrix_id == matrix_id
                     & !is.na(series_metadata$matrix_id),]
 
   nrnr_get_series(matrix_metadata[["series_id"]], start_year)
