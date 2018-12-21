@@ -1,0 +1,306 @@
+---
+title: "Exploratory Data Analysis with `northernr`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{"Exploratory Data Analysis with `northernr`"}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+## What is `northernr`?
+
+## Getting Setup
+install tidyverse if needed
+
+Teaching the fundamentals of R is well beyond the scope of this vignette, so as we go through it I'm going to explain what I'm doing but not explain the details of the code except for `northernr` functions. If you're interested in learning more take a look at the *Resources - or whatever I end up calling it* section at the bottom.
+
+```{r}
+library(tidyverse)
+library(lubridate)
+devtools::load_all("~/projects/northernr") # This will obviously change in future.
+```
+
+## Importing `northernr` Data
+
+Now that I have my basic tools available, I want to pull some data from northernr and start exploring it. As an interesting example dataset I'm going to look at the monthly sales data of the NWT Liquor Commission. To find its ID I'll use `nrnr_list_matrices`. 
+
+```{r}
+nrnr_list_matrices() #Will change how I do this once I implement the matrix groups
+```
+
+blahblahblha
+
+Now that I know the `matrix_id` I need, I'll retrieve the data using `nrnr_get_matrix` and put it into my computer's memory with a convenient variable name. 
+
+It's important to remember here that `nrnr_get_matrix` is actually going out to the internet to get the data and there are lots of things that can go wrong. If northernr says there's a problem it's usually just that the server took too long to connect. Try running it again. If you keep getting errors after a few tries, a raven's probably pulled out an internet cable somewhere and you'll need to try again later. Northern problems, am I right? 
+
+```{r}
+bev <- nrnr_get_matrix("TM060001")
+```
+
+## Exploratory Data Analysis
+
+Now I have the data in memory and I'll take a first look at it. 
+
+```{r}
+bev %>%
+  glimpse()
+```
+
+### Tidy data - optional digression
+
+One thing you might notice is that the data we have looks very repetitious. That's because it's what's called _tidy data_. Each column is a variable and each row is a single observation of each variable. The advantage that has in data analysis is that having a generic, consistent structure makes it much easier to manipulate the data to whatever we happen to need for a specific task. Preparing data is usually the most time-consuming part of an analyst's workflow, so we structure the *data* to facilitate analysis instead of for presentation. Soon we'll see exactly how much benefit that gives us and how by separating the data itself from presentation of the data we don't give up anything at all.
+
+Another thing you might notice is that the data here isn't actually structured in the way I just described. Shouldn't `series_name` be the variable? You're right, but rememeber that there are 53 different matrices available from StatsNWT that cover a wide range of subject areas. They don't all look the same. By having a consistent starting point, even if it's very generic, we can use the tools we have to easily reshape the data to our needs whether we're looking at alcohol sales, mineral production, or any other thing that might strike our interest.
+
+```{r}
+# Explain tidy data of a time series observation rather than of any particular phenomenon. Really actually should explain the logic of the basic dataframe. 
+```
+
+
+### blah
+
+I'll take a what kind of data is in the matrix by selecting the `series_name` and `measurement` variables and filtering to show only unique combinations. Think about why this works based on the structure of a tidy dataset. 
+
+```{r}
+bev %>%
+  select(series_name, measurement) %>%
+  distinct()
+```
+
+I have both the volume and sales value of Coolers & Ciders, Spirits, Wine, and Beer. There are a few minor things to do, but first the `matrix_id` and `series_id` columns aren't telling me much right now so I'll go ahead and drop them. I'll also drop `matrix_name` for now just to save myself some space. I can put it back later if I need to.
+
+```{r}
+bev_no_id <-
+  bev %>%
+  select(-matrix_id, -series_id, -matrix_name)
+
+head(bev_no_id)
+```
+
+Next I'm going to combine `series_name` and `measurement` to a temporary column then spread its values to become their own columns with values of `value`. That's because our observational unit (rows) is the time period and for each time period the value of sales and volume of sales are different variables that we're observing.
+
+```{r}
+bev_spread <-
+  bev_no_id %>%
+  unite(var_name, series_name, measurement, sep = " - ") %>%
+  spread(var_name, value)
+
+head(bev_spread)
+```
+
+We're getting fairly close to a tidy data ideal, but there's an element of art and judgement to it. Where we go next really depends on the question we're asking. 
+
+One curious thing about this dataset is that Coolers & Ciders, Spirits, and Wine differentiate between domestic and imported sales volumes but Beer is only the total volume. With craft beer's increase in popularity since the dataset starts in April 1999 it would've been interesting to look at how the ratio of domestic to imported sales have changed over that period but we don't have the data here. 
+
+I wonder how alcohol prices overall have changed since 1999, though. I'm going to start with a hypothesis that the price of beer has increased at a higher rate than inflation overall. 
+
+Value must be in dollars and I assume volume is in litres but I can't say for sure. The big numbers are hard to read though, so I'll make those a little more managable. Also one-word variable names are a little nicer to code with. Whether it's worth changing them depends how close you are to wanting a data product that's ready for presentation to an audience.
+
+```{r}
+
+beer <-
+  bev_spread %>%
+  filter(
+    !is.na(`Beer - Volume`),
+    !is.na(`Beer - Sales (Value)`)) %>% #Those 3 NAs at the top were bugging me
+  transmute(
+    period = period,
+    volume_000s = `Beer - Volume` / 1000, 
+    value_000s = `Beer - Sales (Value)` / 1000 
+  )
+
+head(beer)
+```
+
+
+
+Now this is the fun part. Let's take a look! We'll start with volume.
+
+```{r}
+beer %>%
+  ggplot(aes(x = period, y = volume_000s)) +
+  geom_line() 
+```
+
+So there's definitely an annual trend and it looks like there's also a also a non-monotonic long-term trend. That'll be something to look at but first what about value?
+
+```{r}
+beer %>%
+  ggplot(aes(x = period, y = value_000s)) +
+  geom_line() 
+```
+
+Looks like the same annual trend that's probably attributable to sales volume fluctuation and an upwards long-term trend but what I'm fascinated by is that one outlier month. Looking at the volume graph it doesn't look like there was a corresponding increase there. Let's see what we can find out.
+
+#### What's up this outlier month?
+
+```{r}
+beer %>%
+  filter(value_000s > 2500)
+```
+
+May 2007. Hmm... I guess there's the long weekend, but still. Could be the financial crisis, but wasn't it a little early for that? And if that were the reason, why so big for one month then back to normal? Maybe just a typo; someone hit 3 instead of 2. 
+
+Let's skim the matrices and see if we get any ideas for places to look.
+
+```{r}
+nrnr_list_matrices()
+```
+
+Here's something... aircraft movements. TM120003. Maybe there was some major event happening, which should correspond with increased air traffic. First I want to see what data TM120003 actually contains, though. 
+
+```{r}
+series_metadata %>%
+  filter(matrix_id == "TM120003")
+```
+
+Total takeoffs and landings looks good. I'll fetch that series from the server using `nrnr_get_series` and `"TS1509"`. Since I'm interested in May 2007 specifically I'll also set the optional `start_year` variable to 2007. 
+
+```{r}
+air <- nrnr_get_series("TS1509", start_year = 2007)
+
+glimpse(air)
+```
+
+Since I'm only looking at one variable here it makes the tidying work pretty straight forward. 
+
+```{r}
+tidy_air <-
+  air %>%
+  filter(!is.na(value)) %>%
+  transmute(
+    period = period,
+    total_takeoff_and_landings = value
+  )
+
+```
+
+Now let's see what we can see.
+
+```{r}
+tidy_air %>%
+  ggplot(aes(x = period, y = total_takeoff_and_landings)) +
+  geom_crossbar(aes(x = ymd("2007-05-01"), ymin=0, ymax = max(tidy_air$total_takeoff_and_landings)), color = "red", alpha = 0) +
+  geom_line()
+```
+
+Interesting. May 2007 is a relatively high one, but it doesn't look likely to be able to explain the outlier we saw. I'm curious about the trend that I'm seeing in the data starting from 2007 though, so I'm going to re-run everything I just did but with the series from the beginning. One of the huge advantages to doing data analysis with something like R or Python versus Excel is just how it is to do that. All I need to do is copy my code from above and chain it together. What I'm doing here in this interactive analysis is basic, but it becomes much more powerful when I start writing my own reusable functions.
+
+```{r}
+nrnr_get_series("TS1509") %>%
+  filter(!is.na(value)) %>%
+  transmute(
+    period = period,
+    total_takeoff_and_landings = value
+  ) %>%
+  ggplot(aes(x = period, y = total_takeoff_and_landings)) +
+  geom_crossbar(aes(x = ymd("2007-05-01"), ymin=0, ymax = max(tidy_air$total_takeoff_and_landings)), color = "red") +
+  geom_line()
+```
+
+Ok, we'll call the great beerfest of May 2007 a mystery for now (I do suspect it's probably a typo) and get back to the question of alcohol prices.
+
+```{r}
+beer %>%
+  ggplot(aes(x = period, y = value_000s / volume_000s)) +
+  geom_line()
+```
+
+With the exception of those few little outliers this pretty much looks like the trend we'd expect but let's see how it relates to overall price trends.
+
+```{r}
+nrnr_list_matrices()
+```
+
+There's inflation rate and consumer price index. Either could work but let's go with CPI just because we're already looking at increase from a baseline. 
+
+```{r}
+series_metadata %>%
+  filter(matrix_id %in% c("TM090012", "TM090013"))
+```
+
+Both single-series matrices, that'll make things easy again. I'll grab them both.
+
+```{r}
+cpi <-
+  nrnr_get_series(c("TS341","TS371")) %>%
+  select(series_name, period, value) %>% # See, in the alcohol matrix measurement was actually a component of the variable, here it's just informational
+  spread(series_name, value) %>%
+  filter(period >= ymd("2002-01-01"))
+  
+```
+
+The measurement listed for the series says 1992=100, but it look like that is in fact 2002. That's a good thing, since we can just start our alcohol data from 2002 and normalize it to 100. 
+
+```{r}
+beer_100 <- 
+  beer %>%
+  mutate(
+    price = value_000s / volume_000s
+  ) %>%
+  filter(period >= ymd("2002-01-01")) %>%
+  mutate(
+    starting_price = first(price) 
+  ) %>%
+  transmute(
+    period = period,
+    `NWT Beer Index` = (price / starting_price) * 100
+  )
+  
+```
+
+Now I've got all my data set up for to answer my question. 
+
+```{r}
+left_join(beer_100, cpi, by = "period") %>%
+  gather("index", "value", -period) %>%
+  filter(!is.na(value)) %>%
+  ggplot(aes(x = period, y = value, color = index)) +
+  geom_line()
+```
+
+Well that looks awfully wonky. January 2002 must be one of those outliers. Eyeballing it, it looks like it's ok by April. Let's go with that. Rapid but transparent iteration is the name of the game in exploratory data analysis. If we need to to formal hypothesis testing we'll worry about the details then, and we'll have an easy time because we can reuse the work we've already done. 
+
+Again, we can easily copy and paste the workflow we used and just make the changes we want to. 
+
+```{r}
+beer_100_v2 <- 
+  beer %>%
+  mutate(
+    price = value_000s / volume_000s
+  ) %>%
+  filter(period >= ymd("2002-04-01")) %>% # Changed from January to April
+  mutate(
+    starting_price = first(price) 
+  ) %>%
+  transmute(
+    period = period,
+    `Price per Litre(?) of Beer` = (price / starting_price) * 100
+  )
+ 
+left_join(beer_100_v2, cpi, by = "period") %>%
+  gather("index", "value", -period) %>%
+  filter(!is.na(value)) %>%
+  ggplot(aes(x = period, y = value, color = index)) +
+  geom_line()
+ 
+```
+
+That looks more reasonable and pretty interesting. It seems like my hypothesis was mostly wrong. Beer prices generally tracked the Canada and Yellowknife CPI up until 2016 when they suddenly spiked. 
+
+There's lots more we could look at, but I think that's enough for now. Join me in the next vignette where I'll go through doing more presentable data visualization.
+
+
+## Resources
+
+### Tidy data
+* [Tidy data](https://tidyr.tidyverse.org/articles/tidy-data.html) - An applied introduction to tidy data in R with the `tidyr` package we used.
+* [Tidy data](https://www.jstatsoft.org/article/view/v059i10) - The original paper on tidy data by Hadley Wickham, which goes into more detail on the underlying theory.
